@@ -5,6 +5,91 @@ use crate::Stream;
 use mlx_internal_macros::generate_macro;
 
 impl Array {
+    /// Element-wise bitwise AND of integer arrays, with broadcasting.
+    ///
+    /// Uses the stream selected by [`crate::with_stream`] or the runtime default.
+    pub fn bitwise_and(&self, other: impl AsRef<Array>) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
+        Array::try_from_op(|res| unsafe {
+            mlx_sys::mlx_bitwise_and(
+                res,
+                self.as_ptr(),
+                other.as_ref().as_ptr(),
+                stream.as_ref().as_ptr(),
+            )
+        })
+    }
+
+    /// Element-wise bitwise OR of integer arrays, with broadcasting.
+    ///
+    /// Uses the stream selected by [`crate::with_stream`] or the runtime default.
+    pub fn bitwise_or(&self, other: impl AsRef<Array>) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
+        Array::try_from_op(|res| unsafe {
+            mlx_sys::mlx_bitwise_or(
+                res,
+                self.as_ptr(),
+                other.as_ref().as_ptr(),
+                stream.as_ref().as_ptr(),
+            )
+        })
+    }
+
+    /// Element-wise bitwise XOR of integer arrays, with broadcasting.
+    ///
+    /// Uses the stream selected by [`crate::with_stream`] or the runtime default.
+    pub fn bitwise_xor(&self, other: impl AsRef<Array>) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
+        Array::try_from_op(|res| unsafe {
+            mlx_sys::mlx_bitwise_xor(
+                res,
+                self.as_ptr(),
+                other.as_ref().as_ptr(),
+                stream.as_ref().as_ptr(),
+            )
+        })
+    }
+
+    /// Element-wise bitwise inversion of an integer array.
+    ///
+    /// Uses the stream selected by [`crate::with_stream`] or the runtime default.
+    pub fn bitwise_invert(&self) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
+        Array::try_from_op(|res| unsafe {
+            mlx_sys::mlx_bitwise_invert(res, self.as_ptr(), stream.as_ref().as_ptr())
+        })
+    }
+
+    /// Element-wise left shift of integer arrays, with broadcasting.
+    ///
+    /// Uses the stream selected by [`crate::with_stream`] or the runtime default.
+    pub fn left_shift(&self, other: impl AsRef<Array>) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
+        Array::try_from_op(|res| unsafe {
+            mlx_sys::mlx_left_shift(
+                res,
+                self.as_ptr(),
+                other.as_ref().as_ptr(),
+                stream.as_ref().as_ptr(),
+            )
+        })
+    }
+
+    /// Element-wise right shift of integer arrays, with broadcasting.
+    ///
+    /// Uses the stream selected by [`crate::with_stream`] or the runtime default.
+    pub fn right_shift(&self, other: impl AsRef<Array>) -> Result<Array> {
+        let stream = Stream::thread_local_or_default();
+        Array::try_from_op(|res| unsafe {
+            mlx_sys::mlx_right_shift(
+                res,
+                self.as_ptr(),
+                other.as_ref().as_ptr(),
+                stream.as_ref().as_ptr(),
+            )
+        })
+    }
+
     /// Element-wise equality returning an error if the arrays are not broadcastable.
     ///
     /// Equality comparison on two arrays with
@@ -1173,6 +1258,178 @@ mod tests {
     use crate::{array, Dtype};
 
     use super::*;
+
+    #[cfg(feature = "metal")]
+    #[test]
+    fn test_native_bitwise_u32_gpu_boundaries() {
+        let stream = Stream::new_with_device(&crate::Device::gpu());
+        crate::with_stream(&stream, || {
+            let lhs = [0u32, u32::MAX, 0x8000_0000, 0x7fff_ffff, 0xaaaa_aaaa, 1];
+            let rhs = [u32::MAX, u32::MAX, 0x7fff_ffff, 0x8000_0000, 0x5555_5555, 1];
+            let a = Array::from_slice(&lhs, &[6]);
+            let b = Array::from_slice(&rhs, &[6]);
+            let cases = [
+                (
+                    a.bitwise_and(&b).unwrap(),
+                    lhs.iter().zip(rhs).map(|(&x, y)| x & y).collect::<Vec<_>>(),
+                ),
+                (
+                    a.bitwise_or(&b).unwrap(),
+                    lhs.iter().zip(rhs).map(|(&x, y)| x | y).collect::<Vec<_>>(),
+                ),
+                (
+                    a.bitwise_xor(&b).unwrap(),
+                    lhs.iter().zip(rhs).map(|(&x, y)| x ^ y).collect::<Vec<_>>(),
+                ),
+                (
+                    a.bitwise_invert().unwrap(),
+                    lhs.iter().map(|&x| !x).collect::<Vec<_>>(),
+                ),
+            ];
+            for (actual, expected) in cases {
+                assert_eq!(actual.dtype(), Dtype::Uint32);
+                actual.eval().unwrap();
+                assert_eq!(actual.as_slice::<u32>(), expected.as_slice());
+            }
+        });
+    }
+
+    #[cfg(feature = "metal")]
+    #[test]
+    fn test_native_bitwise_u64_gpu_boundaries() {
+        let stream = Stream::new_with_device(&crate::Device::gpu());
+        crate::with_stream(&stream, || {
+            let lhs = [
+                0u64,
+                u64::MAX,
+                0x8000_0000_0000_0001,
+                0x7fff_ffff_ffff_ffff,
+                0xaaaa_aaaa_aaaa_aaaa,
+                1,
+            ];
+            let rhs = [
+                u64::MAX,
+                u64::MAX,
+                0x7fff_ffff_ffff_ffff,
+                0x8000_0000_0000_0000,
+                0x5555_5555_5555_5555,
+                1,
+            ];
+            let a = Array::from_slice(&lhs, &[6]);
+            let b = Array::from_slice(&rhs, &[6]);
+            let cases = [
+                (
+                    a.bitwise_and(&b).unwrap(),
+                    lhs.iter().zip(rhs).map(|(&x, y)| x & y).collect::<Vec<_>>(),
+                ),
+                (
+                    a.bitwise_or(&b).unwrap(),
+                    lhs.iter().zip(rhs).map(|(&x, y)| x | y).collect::<Vec<_>>(),
+                ),
+                (
+                    a.bitwise_xor(&b).unwrap(),
+                    lhs.iter().zip(rhs).map(|(&x, y)| x ^ y).collect::<Vec<_>>(),
+                ),
+                (
+                    a.bitwise_invert().unwrap(),
+                    lhs.iter().map(|&x| !x).collect::<Vec<_>>(),
+                ),
+            ];
+            for (actual, expected) in cases {
+                assert_eq!(actual.dtype(), Dtype::Uint64);
+                actual.eval().unwrap();
+                assert_eq!(actual.as_slice::<u64>(), expected.as_slice());
+            }
+        });
+    }
+
+    #[cfg(feature = "metal")]
+    #[test]
+    fn test_native_shifts_u32_gpu_boundaries() {
+        let stream = Stream::new_with_device(&crate::Device::gpu());
+        crate::with_stream(&stream, || {
+            let values = [
+                0u32,
+                u32::MAX,
+                0x8000_0001,
+                1,
+                u32::MAX,
+                0x8000_0001,
+                0xaaaa_aaaa,
+                u32::MAX,
+            ];
+            let shifts = [0u32, 0, 0, 31, 31, 1, 31, 1];
+            let a = Array::from_slice(&values, &[8]);
+            let b = Array::from_slice(&shifts, &[8]);
+            let cases = [
+                (
+                    a.left_shift(&b).unwrap(),
+                    values
+                        .iter()
+                        .zip(shifts)
+                        .map(|(&x, n)| x.wrapping_shl(n))
+                        .collect::<Vec<_>>(),
+                ),
+                (
+                    a.right_shift(&b).unwrap(),
+                    values
+                        .iter()
+                        .zip(shifts)
+                        .map(|(&x, n)| x.wrapping_shr(n))
+                        .collect::<Vec<_>>(),
+                ),
+            ];
+            for (actual, expected) in cases {
+                assert_eq!(actual.dtype(), Dtype::Uint32);
+                actual.eval().unwrap();
+                assert_eq!(actual.as_slice::<u32>(), expected.as_slice());
+            }
+        });
+    }
+
+    #[cfg(feature = "metal")]
+    #[test]
+    fn test_native_shifts_u64_gpu_boundaries() {
+        let stream = Stream::new_with_device(&crate::Device::gpu());
+        crate::with_stream(&stream, || {
+            let values = [
+                0u64,
+                u64::MAX,
+                0x8000_0000_0000_0001,
+                u64::MAX,
+                u64::MAX,
+                1,
+                u64::MAX,
+                0x8000_0000_0000_0001,
+            ];
+            let shifts = [0u64, 0, 0, 31, 32, 63, 63, 1];
+            let a = Array::from_slice(&values, &[8]);
+            let b = Array::from_slice(&shifts, &[8]);
+            let cases = [
+                (
+                    a.left_shift(&b).unwrap(),
+                    values
+                        .iter()
+                        .zip(shifts)
+                        .map(|(&x, n)| x.wrapping_shl(n as u32))
+                        .collect::<Vec<_>>(),
+                ),
+                (
+                    a.right_shift(&b).unwrap(),
+                    values
+                        .iter()
+                        .zip(shifts)
+                        .map(|(&x, n)| x.wrapping_shr(n as u32))
+                        .collect::<Vec<_>>(),
+                ),
+            ];
+            for (actual, expected) in cases {
+                assert_eq!(actual.dtype(), Dtype::Uint64);
+                actual.eval().unwrap();
+                assert_eq!(actual.as_slice::<u64>(), expected.as_slice());
+            }
+        });
+    }
 
     #[test]
     fn test_eq() {
